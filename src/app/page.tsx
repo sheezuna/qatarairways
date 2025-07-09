@@ -73,6 +73,18 @@ export default function Home() {
 
   return (
     <div className="consent-container">
+      {showDbWarning && (
+        <div className="db-warning">
+          <div className="db-warning-content">
+            <span className="warning-icon">⚠️</span>
+            <div>
+              <strong>Database Setup Required</strong>
+              <p>Please set up the database tables. See <code>QUICK_SETUP.md</code> for instructions.</p>
+            </div>
+            <button onClick={() => setShowDbWarning(false)} className="close-warning">×</button>
+          </div>
+        </div>
+      )}
       <div className="image-section">
         <div className="image-overlay"></div>
         <Image 
