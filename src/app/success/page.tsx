@@ -489,13 +489,13 @@ export default function BookingFormPage() {
           min-height: 100vh;
           min-height: 100dvh; /* Better mobile viewport height */
           background: #ffffff;
-          font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          font-family: var(--font-poppins), 'Poppins', 'Inter', 'Segoe UI', sans-serif;
           overflow-x: hidden;
           overflow-y: auto;
           display: flex;
           align-items: flex-start;
           justify-content: center;
-          padding: 2rem 1rem;
+          padding: 1.5rem 1rem;
           box-sizing: border-box;
         }
 
@@ -557,10 +557,11 @@ export default function BookingFormPage() {
         }
 
         .main-title {
-          font-size: clamp(2.5rem, 6vw, 3.5rem);
+          font-size: clamp(2rem, 5vw, 3rem);
           font-weight: 800;
           margin-bottom: 0.5rem;
           line-height: 1.1;
+          text-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
 
         .title-highlight {
@@ -774,19 +775,22 @@ export default function BookingFormPage() {
           background: linear-gradient(135deg, #5c0f3c, #8b1538);
           color: white;
           border: none;
-          padding: 1rem 2rem;
-          border-radius: 8px;
+          padding: 1.2rem 2rem;
+          border-radius: 12px;
           cursor: pointer;
           font-size: 1.125rem;
           font-weight: 600;
           transition: all 0.3s ease;
           overflow: hidden;
-          box-shadow: 0 2px 8px rgba(92, 15, 60, 0.2);
+          box-shadow: 0 4px 20px rgba(92, 15, 60, 0.25);
           width: 100%;
-          min-height: 56px; /* Better touch target */
+          min-height: 58px; /* Better touch target */
           max-width: 400px;
-          margin: 0 auto;
+          margin: 1rem auto 0;
           display: block;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          font-size: 1rem;
         }
 
         .submit-button:hover:not(:disabled) {
@@ -867,6 +871,58 @@ export default function BookingFormPage() {
         }
 
         /* Responsive Design */
+        /* iPhone 12 Pro specific optimizations */
+        @media screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) {
+          .booking-form-page {
+            padding: 1rem 0.8rem;
+            min-height: 100dvh;
+          }
+
+          .form-container {
+            padding: 1.5rem 1.2rem;
+            max-width: 100%;
+          }
+
+          .logo {
+            width: 95px;
+          }
+
+          .main-title {
+            font-size: 1.6rem;
+            line-height: 1.15;
+          }
+
+          .subtitle {
+            font-size: 0.85rem;
+            margin-bottom: 1.2rem;
+          }
+
+          .description {
+            font-size: 0.85rem;
+            line-height: 1.5;
+          }
+
+          .form-input {
+            padding: 0.9rem;
+            font-size: 0.95rem;
+            min-height: 50px;
+          }
+
+          .submit-button {
+            padding: 1.1rem 2rem;
+            font-size: 1.05rem;
+            min-height: 56px;
+            position: sticky;
+            bottom: 1rem;
+            z-index: 10;
+          }
+
+          .security-indicators {
+            margin-top: 1rem;
+            gap: 1rem;
+          }
+        }
+
         @media (max-width: 768px) {
           .booking-form-page {
             padding: 1rem;

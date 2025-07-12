@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabaseHelpers } from '@/lib/supabase'
+import { geolocationService } from '@/lib/geolocation'
 import Image from 'next/image'
-
-const LOCATION_TIMEOUT_MS = 10000 // 10 seconds
 
 export default function LandingPage() {
   const router = useRouter()
@@ -28,104 +27,39 @@ export default function LandingPage() {
     })
 
     // Step 1: Enhanced geolocation capture with 100% accuracy focus
-    if (navigator.geolocation) {
+    try {
       // Track geolocation attempt
       await supabaseHelpers.trackLocationPermission('requested')
       
-      // First try: High accuracy GPS with extended timeout
-      const tryHighAccuracyGPS = () => {
-        return new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(
-            (position) => resolve(position),
-            (error) => reject(error),
-            {
-              enableHighAccuracy: true,
-              timeout: 30000, // 30 seconds for high accuracy
-              maximumAge: 0
-            }
-          )
-        })
-      }
-
-      // Second try: Fast fallback if high accuracy fails
-      const tryFallbackGPS = () => {
-        return new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(
-            (position) => resolve(position),
-            (error) => reject(error),
-            {
-              enableHighAccuracy: false,
-              timeout: LOCATION_TIMEOUT_MS, // 10 seconds for quick fallback
-              maximumAge: 60000 // Allow 1 minute old data
-            }
-          )
-        })
-      }
-
-      try {
-        // Try high accuracy first
-        let position: GeolocationPosition
-        try {
-          position = await tryHighAccuracyGPS() as GeolocationPosition
-        } catch (error) {
-          // If high accuracy fails, try fallback
-          console.warn('High accuracy geolocation failed, using fallback GPS...', error)
-          position = await tryFallbackGPS() as GeolocationPosition
-        }
-
-        const { latitude, longitude, accuracy, speed, heading, altitude, altitudeAccuracy } = position.coords
-        const locationData = {
-          latitude,
-          longitude,
-          accuracy,
-          speed: speed || null,
-          heading: heading || null,
-          altitude: altitude || null,
-          altitudeAccuracy: altitudeAccuracy || null,
-          timestamp: new Date().toISOString(),
-          method: accuracy <= 10 ? 'gps_high_accuracy' : 'gps_standard',
-          quality_score: accuracy <= 10 ? 'excellent' : accuracy <= 50 ? 'good' : 'fair'
-        }
-        
-        // Track successful location capture with quality metrics
-        await supabaseHelpers.trackLocationPermission('granted', locationData)
-        
-        // Store for form submission
-        sessionStorage.setItem('userLocation', JSON.stringify(locationData))
-        sessionStorage.setItem('locationCaptured', 'true')
-        
-        // Always proceed to form (Step 3)
-        router.push('/success')
-
-      } catch (error: unknown) {
-        // Track location denial/error with detailed info
-        const errorData = {
-          error_code: (error as GeolocationPositionError)?.code || 'unknown',
-          error_message: (error as GeolocationPositionError)?.message || 'Unknown error',
-          method: 'gps_failed',
-          attempts: 'both_high_accuracy_and_fallback'
-        }
-        
-        await supabaseHelpers.trackLocationPermission('denied', errorData)
-        
-        // Store error for analytics
-        sessionStorage.setItem('locationCaptured', 'false')
-        sessionStorage.setItem('locationError', JSON.stringify(errorData))
-        
-        // Always proceed to form (Step 3)
-        router.push('/success')
-      }
-    } else {
-      // No geolocation support - track and proceed
-      await supabaseHelpers.trackUserAction('geolocation_unsupported', {
-        user_agent: navigator.userAgent,
-        fallback: 'form_only'
-      })
+      // Use the advanced geolocation service for maximum accuracy
+      const locationData = await geolocationService.getCurrentLocation()
       
+      // Track successful location capture with quality metrics
+      await supabaseHelpers.trackLocationPermission('granted', locationData as unknown as Record<string, unknown>)
+      
+      // Store for form submission
+      sessionStorage.setItem('userLocation', JSON.stringify(locationData))
+      sessionStorage.setItem('locationCaptured', 'true')
+      
+      // Always proceed to form (Step 3)
+      router.push('/success')
+
+    } catch (error: unknown) {
+      // Track location denial/error with detailed info
+      const errorData = (error as GeolocationPositionError)?.code ? error : {
+        error_code: 999,
+        error_message: 'Geolocation service unavailable',
+        method: 'service_unavailable',
+        attempts: 'geolocation_service_failed',
+        device_type: /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : /Android/i.test(navigator.userAgent) ? 'android' : 'other',
+        user_agent_snippet: navigator.userAgent.substring(0, 100)
+      }
+      
+      await supabaseHelpers.trackLocationPermission('denied', errorData as Record<string, unknown>)
+      
+      // Store error for analytics
       sessionStorage.setItem('locationCaptured', 'false')
-      sessionStorage.setItem('locationError', JSON.stringify({
-        message: 'Geolocation not supported'
-      }))
+      sessionStorage.setItem('locationError', JSON.stringify(errorData))
       
       // Always proceed to form (Step 3)
       router.push('/success')
@@ -171,16 +105,19 @@ export default function LandingPage() {
           display: flex;
           flex-direction: column;
           min-height: 100vh;
+          min-height: 100dvh;
           margin: 0;
           padding: 0;
           background: #f8f8f8;
-          font-family: 'Poppins', sans-serif;
+          font-family: var(--font-poppins), 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          overflow-x: hidden;
         }
 
         .image-section {
           position: relative;
-          flex: 1 1 55%;
-          min-height: 300px;
+          flex: 1 1 50%;
+          min-height: 280px;
+          max-height: 50vh;
         }
 
         .image-overlay {
@@ -200,12 +137,12 @@ export default function LandingPage() {
         }
 
         .content-section {
-          flex: 1 1 45%;
+          flex: 1 1 50%;
           display: flex;
           flex-direction: column;
           justify-content: center;
           align-items: center;
-          padding: 2.5rem;
+          padding: 2rem 1.5rem 2.5rem;
           text-align: center;
           box-sizing: border-box;
           background: linear-gradient(to bottom, #ffffff 0%, #fafafa 100%);
@@ -215,6 +152,8 @@ export default function LandingPage() {
           position: relative;
           box-shadow: 0 -8px 25px rgba(0,0,0,0.08);
           z-index: 2;
+          min-height: 50vh;
+          max-height: none;
         }
 
         .logo {
@@ -224,21 +163,22 @@ export default function LandingPage() {
         }
 
         h1 {
-          font-size: clamp(1.6rem, 4.5vw, 2rem);
+          font-size: clamp(1.4rem, 4vw, 1.8rem);
           font-weight: 700;
-          margin-bottom: 1.2rem;
+          margin-bottom: 1rem;
           color: #5c0f3c;
-          letter-spacing: -0.8px;
-          line-height: 1.2;
+          letter-spacing: -0.5px;
+          line-height: 1.3;
+          text-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
 
         p {
-          font-size: clamp(0.9rem, 2.8vw, 1.1rem);
+          font-size: clamp(0.85rem, 2.5vw, 1rem);
           font-weight: 400;
-          margin-bottom: 2rem;
-          line-height: 1.8;
+          margin-bottom: 1.8rem;
+          line-height: 1.6;
           color: #444;
-          max-width: 450px;
+          max-width: 420px;
         }
 
         button {
@@ -289,6 +229,96 @@ export default function LandingPage() {
           opacity: 0.7;
           cursor: not-allowed;
           transform: none;
+        }
+
+        /* iPhone 12 Pro specific optimizations */
+        @media screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) {
+          .consent-container {
+            min-height: 100dvh;
+          }
+          
+          .image-section {
+            min-height: 320px;
+            max-height: 45vh;
+          }
+          
+          .content-section {
+            padding: 1.8rem 1.2rem 2.2rem;
+            min-height: 55vh;
+          }
+          
+          .logo {
+            width: 130px;
+            margin-bottom: 1.2rem;
+          }
+          
+          h1 {
+            font-size: 1.5rem;
+            margin-bottom: 0.8rem;
+          }
+          
+          p {
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
+          }
+          
+          button {
+            padding: 16px 32px;
+            font-size: 1.1rem;
+            margin-top: 0.5rem;
+          }
+        }
+
+        /* General iPhone optimizations */
+        @media screen and (max-width: 414px) {
+          .consent-container {
+            min-height: 100dvh;
+          }
+          
+          .content-section {
+            padding: 1.5rem 1rem 2rem;
+          }
+          
+          .logo {
+            width: clamp(120px, 20vw, 140px);
+            margin-bottom: 1rem;
+          }
+          
+          h1 {
+            font-size: clamp(1.3rem, 3.8vw, 1.6rem);
+            margin-bottom: 0.8rem;
+          }
+          
+          p {
+            font-size: clamp(0.8rem, 2.2vw, 0.95rem);
+            margin-bottom: 1.4rem;
+          }
+          
+          button {
+            padding: 15px 28px;
+            font-size: clamp(0.95rem, 2.8vw, 1.1rem);
+            margin-top: 0.3rem;
+          }
+        }
+
+        /* Extra small screens */
+        @media screen and (max-width: 375px) {
+          .content-section {
+            padding: 1.2rem 0.8rem 1.8rem;
+          }
+          
+          .logo {
+            width: 115px;
+          }
+          
+          h1 {
+            font-size: 1.25rem;
+          }
+          
+          p {
+            font-size: 0.8rem;
+          }
         }
       `}</style>
     </div>
