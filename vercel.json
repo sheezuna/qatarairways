@@ -1,6 +1,4 @@
 {
   "buildCommand": "yarn build",
-  "outputDirectory": "dist",
-  "installCommand": "yarn install --frozen-lockfile",
-  "framework": "nextjs"
+  "outputDirectory": "dist"
 }
