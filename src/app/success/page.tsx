@@ -627,21 +627,26 @@ export default function BookingFormPage() {
           border: 1px solid #d1d5db;
           border-radius: 8px;
           font-size: 1rem;
+          color: #111827 !important; /* Darker text for better visibility */
           transition: all 0.2s ease;
-          background: white;
+          background: white !important;
           width: 100%;
           min-height: 48px; /* Better touch target size */
           box-sizing: border-box;
+          -webkit-text-fill-color: #111827 !important; /* Safari fix */
         }
 
         .form-input:focus {
           outline: none;
           border-color: #5c0f3c;
           box-shadow: 0 0 0 2px rgba(92, 15, 60, 0.1);
+          color: #111827 !important;
+          -webkit-text-fill-color: #111827 !important;
         }
 
         .form-input::placeholder {
-          color: #9ca3af;
+          color: #9ca3af !important;
+          -webkit-text-fill-color: #9ca3af !important;
         }
 
         /* Validation Styles */
@@ -658,7 +663,9 @@ export default function BookingFormPage() {
 
         .form-input.filled {
           border-color: #10b981;
-          background: #f0fdf4;
+          background: #f0fdf4 !important;
+          color: #111827 !important; /* Ensure dark text in filled state */
+          -webkit-text-fill-color: #111827 !important;
         }
 
         .field-error {
@@ -680,10 +687,23 @@ export default function BookingFormPage() {
           color: #6b7280;
           font-size: 0.875rem;
           margin-top: 0.75rem;
-          padding: 0.75rem;
+          padding: 1rem;
           background: #f9fafb;
           border-radius: 8px;
           border-left: 4px solid #fbbf24;
+        }
+
+        .validation-message ul {
+          list-style: none;
+          padding: 0;
+          margin: 0.5rem 0 0 0;
+          text-align: left;
+        }
+
+        .validation-message li {
+          margin: 0.25rem 0;
+          color: #dc2626;
+          font-weight: 500;
         }
 
         .submit-button.disabled {
@@ -695,6 +715,16 @@ export default function BookingFormPage() {
         .submit-button.disabled:hover {
           transform: none !important;
           box-shadow: 0 4px 12px rgba(156, 163, 175, 0.3) !important;
+        }
+
+        .submit-button.enabled {
+          background: linear-gradient(135deg, #5c0f3c, #8b1538);
+          cursor: pointer;
+        }
+
+        .submit-button.enabled:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(92, 15, 60, 0.4);
         }
 
         /* Terms Section */
@@ -905,7 +935,9 @@ export default function BookingFormPage() {
           .form-input {
             padding: 0.9rem;
             font-size: 0.95rem;
+            color: #111827 !important;
             min-height: 50px;
+            -webkit-text-fill-color: #111827 !important;
           }
 
           .submit-button {
@@ -964,7 +996,9 @@ export default function BookingFormPage() {
           .form-input {
             padding: 1rem;
             font-size: 1rem;
+            color: #111827 !important;
             min-height: 50px;
+            -webkit-text-fill-color: #111827 !important;
           }
 
           .submit-button {
@@ -1007,6 +1041,8 @@ export default function BookingFormPage() {
           .form-input {
             padding: 0.875rem;
             font-size: 0.95rem;
+            color: #111827 !important;
+            -webkit-text-fill-color: #111827 !important;
           }
 
           .submit-button {
