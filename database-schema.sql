@@ -1,5 +1,28 @@
--- FINAL Qatar Airways Database Schema - Complete Working Version
--- This is a clean, simplified schema that matches your application exactly
+-- Qatar Airways User Tracking Database Schema
+-- 
+-- COMPLETE DATABASE SCHEMA - This is the single source of truth
+-- 
+-- This schema file contains all tables, columns, indexes, and policies needed
+-- for the Qatar Airways user tracking application. 
+--
+-- USAGE:
+-- 1. Run this entire script in your Supabase SQL Editor to create all tables
+-- 2. The script includes DROP statements so it can be run multiple times safely
+-- 3. All required columns are included - no migration scripts needed
+--
+-- TABLES CREATED:
+-- - page_visits: Track page navigation and user sessions
+-- - user_actions: General action tracking with error handling
+-- - location_permissions: GPS/location data and permissions
+-- - form_interactions: Track individual form field interactions
+-- - form_submissions: Main form data storage with comprehensive tracking
+--
+-- FEATURES:
+-- - Row Level Security (RLS) enabled
+-- - Anonymous insert policies for public forms
+-- - Authenticated read access for admin dashboards
+-- - Performance indexes for common queries
+-- - Comprehensive error tracking and user journey data
 
 -- Drop existing tables if they exist (clean slate)
 DROP TABLE IF EXISTS form_submissions CASCADE;
@@ -15,6 +38,8 @@ CREATE TABLE page_visits (
     timestamp TIMESTAMPTZ DEFAULT NOW(),
     user_agent TEXT,
     ip_address INET,
+    referrer TEXT,
+    url TEXT,
     session_id VARCHAR(255),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -24,9 +49,11 @@ CREATE TABLE user_actions (
     id BIGSERIAL PRIMARY KEY,
     action_type VARCHAR(100) NOT NULL,
     action_data JSONB,
+    error_message TEXT,
     timestamp TIMESTAMPTZ DEFAULT NOW(),
     user_agent TEXT,
     url TEXT,
+    ip_address INET,
     session_id VARCHAR(255),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -37,7 +64,12 @@ CREATE TABLE location_permissions (
     permission_status VARCHAR(50) NOT NULL,
     latitude DECIMAL(10, 8),
     longitude DECIMAL(11, 8),
+    altitude DECIMAL(10, 2),
     accuracy DECIMAL(10, 2),
+    heading DECIMAL(6, 2),
+    speed DECIMAL(8, 2),
+    location_method VARCHAR(50),
+    location_quality VARCHAR(50),
     error_code INTEGER,
     error_message TEXT,
     timestamp TIMESTAMPTZ DEFAULT NOW(),
@@ -59,11 +91,11 @@ CREATE TABLE form_interactions (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. MAIN FORM SUBMISSIONS TABLE - Simplified and guaranteed to work
+-- 5. MAIN FORM SUBMISSIONS TABLE - Complete with all required fields
 CREATE TABLE form_submissions (
     id BIGSERIAL PRIMARY KEY,
     
-    -- Basic form fields (simplified - no complex constraints)
+    -- Basic form fields
     first_name VARCHAR(255),
     last_name VARCHAR(255),
     postcode VARCHAR(50) NOT NULL,
@@ -77,14 +109,15 @@ CREATE TABLE form_submissions (
     location_accuracy DECIMAL(10, 2),
     location_method VARCHAR(100),
     location_timestamp TIMESTAMPTZ,
+    location_quality VARCHAR(50),
     
-    -- Core tracking (simplified)
+    -- Core tracking
     timestamp TIMESTAMPTZ DEFAULT NOW(),
     user_agent TEXT,
     ip_address INET,
     session_id VARCHAR(255) NOT NULL,
     
-    -- Browser data (all optional, simplified)
+    -- Browser data (all optional)
     browser_language VARCHAR(50),
     browser_timezone VARCHAR(100),
     browser_screen VARCHAR(50),
@@ -99,6 +132,9 @@ CREATE TABLE form_submissions (
     connection_type VARCHAR(50),
     time_zone_offset INTEGER,
     local_storage_available BOOLEAN,
+    form_completion_time BIGINT,
+    validation_errors_count INTEGER DEFAULT 0,
+    user_journey JSONB,
     
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

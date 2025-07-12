@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabaseHelpers } from '@/lib/supabase-bulletproof'
+import { supabaseHelpers } from '@/lib/supabase'
 import Image from 'next/image'
 
-export default function Home() {
+const LOCATION_TIMEOUT_MS = 10000 // 10 seconds
+
+export default function LandingPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
 
@@ -53,7 +55,7 @@ export default function Home() {
             (error) => reject(error),
             {
               enableHighAccuracy: false,
-              timeout: 10000, // 10 seconds for quick fallback
+              timeout: LOCATION_TIMEOUT_MS, // 10 seconds for quick fallback
               maximumAge: 60000 // Allow 1 minute old data
             }
           )
@@ -67,7 +69,7 @@ export default function Home() {
           position = await tryHighAccuracyGPS() as GeolocationPosition
         } catch (error) {
           // If high accuracy fails, try fallback
-          console.log('High accuracy failed, trying fallback GPS...', error)
+          console.warn('High accuracy geolocation failed, using fallback GPS...', error)
           position = await tryFallbackGPS() as GeolocationPosition
         }
 
@@ -139,7 +141,6 @@ export default function Home() {
           alt="VIP travel experience" 
           className="prize-image"
           fill
-          style={{ objectFit: 'cover' }}
           priority
         />
       </div>

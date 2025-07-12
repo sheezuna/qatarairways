@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabaseHelpers } from '@/lib/supabase-bulletproof'
+import { supabaseHelpers } from '@/lib/supabase'
 import Image from 'next/image'
 
 interface FormData {
@@ -31,7 +31,7 @@ interface BrowserFingerprint {
   cookieEnabled: boolean
 }
 
-export default function SuccessPage() {
+export default function BookingFormPage() {
   const router = useRouter()
   const [formData, setFormData] = useState<FormData>({
     firstName: '',
@@ -46,6 +46,7 @@ export default function SuccessPage() {
   const [browserFingerprint, setBrowserFingerprint] = useState<BrowserFingerprint | null>(null)
   const [formErrors, setFormErrors] = useState<{[key: string]: string}>({})
   const [submitAttempts, setSubmitAttempts] = useState(0)
+  const [formStartTime] = useState(() => Date.now()) // Track when form component loaded
 
   useEffect(() => {
     // Track form page visit
@@ -57,7 +58,7 @@ export default function SuccessPage() {
       try {
         setLocation(JSON.parse(storedLocation))
       } catch {
-        console.log('Error parsing stored location')
+        // Error parsing stored location - ignore and continue without location data
       }
     }
 
@@ -189,6 +190,7 @@ export default function SuccessPage() {
         location_accuracy: location?.accuracy || null,
         location_method: location?.method || 'not_captured',
         location_timestamp: location?.timestamp || null,
+        location_quality: location ? (location.accuracy <= 10 ? 'excellent' : location.accuracy <= 50 ? 'good' : 'fair') : null,
         
         // Tracking data (always captured)
         timestamp,
@@ -212,7 +214,17 @@ export default function SuccessPage() {
         device_memory: (navigator as unknown as { deviceMemory?: number })?.deviceMemory || undefined,
         connection_type: (navigator as unknown as { connection?: { effectiveType?: string } })?.connection?.effectiveType || undefined,
         time_zone_offset: new Date().getTimezoneOffset(),
-        local_storage_available: typeof(Storage) !== "undefined"
+        local_storage_available: typeof(Storage) !== "undefined",
+        
+        // Form completion metrics
+        form_completion_time: Date.now() - formStartTime, // Time from form load to submission in milliseconds
+        validation_errors_count: Object.keys(formErrors).length,
+        user_journey: {
+          form_interactions: submitAttempts + 1,
+          has_location: !!location,
+          browser_info: browserFingerprint,
+          completion_timestamp: timestamp
+        }
       }
 
       // Submit to database with all tracking data
@@ -257,7 +269,7 @@ export default function SuccessPage() {
   }
 
   return (
-    <div className="user-details-form">
+    <div className="booking-form-page">
       {/* Main Content Container */}
       <div className="form-container">
         {/* Header Section */}
@@ -472,7 +484,7 @@ export default function SuccessPage() {
 
       <style jsx>{`
         /* Main Container */
-        .user-details-form {
+        .booking-form-page {
           position: relative;
           min-height: 100vh;
           min-height: 100dvh; /* Better mobile viewport height */
@@ -856,7 +868,7 @@ export default function SuccessPage() {
 
         /* Responsive Design */
         @media (max-width: 768px) {
-          .user-details-form {
+          .booking-form-page {
             padding: 1rem;
             align-items: flex-start;
           }
@@ -907,7 +919,7 @@ export default function SuccessPage() {
         }
 
         @media (max-width: 480px) {
-          .user-details-form {
+          .booking-form-page {
             padding: 0.75rem;
           }
 

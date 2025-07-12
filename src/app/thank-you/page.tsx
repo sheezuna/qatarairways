@@ -2,8 +2,10 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabaseHelpers } from '@/lib/supabase-bulletproof'
+import { supabaseHelpers } from '@/lib/supabase'
 import Image from 'next/image'
+
+const REDIRECT_DELAY_MS = 10000 // 10 seconds
 
 export default function ThankYouPage() {
   const router = useRouter()
@@ -15,7 +17,7 @@ export default function ThankYouPage() {
     // Auto redirect after 10 seconds
     const timer = setTimeout(() => {
       router.push('/')
-    }, 10000)
+    }, REDIRECT_DELAY_MS)
 
     return () => clearTimeout(timer)
   }, [router])

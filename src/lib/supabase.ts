@@ -5,139 +5,211 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-// Helper functions for data operations
+// Constants
+const SESSION_ID_KEY = 'qatar_session_id'
+const FAILED_SUBMISSIONS_KEY = 'failed_submissions'
+const DEFAULT_RETRY_ATTEMPTS = 3
+const FETCH_TIMEOUT_MS = 5000
+
+interface QueuedRequest {
+  table: string;
+  data: Record<string, unknown>;
+  retries: number;
+}
+
+interface FailedSubmission {
+  table: string;
+  data: Record<string, unknown>;
+}
+
+// Type definitions for better code organization
+type InteractionType = 'focus' | 'blur' | 'field_change' | 'form_submit' | 'form_loaded'
+type PermissionStatus = 'requested' | 'granted' | 'denied'
+type ActionType = string
+
+let offlineRequestQueue: QueuedRequest[] = []
+
+/**
+ * Supabase helpers for user tracking, analytics, and form submissions
+ * Includes offline support and retry mechanisms for reliable data collection
+ */
 export const supabaseHelpers = {
-  // Generate session ID
   getSessionId: () => {
     if (typeof window === 'undefined') return 'server_session_' + Date.now()
     
-    let sessionId = localStorage.getItem('qatar_session_id')
+    let sessionId = localStorage.getItem(SESSION_ID_KEY)
     if (!sessionId) {
       sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
-      localStorage.setItem('qatar_session_id', sessionId)
+      localStorage.setItem(SESSION_ID_KEY, sessionId)
+      sessionStorage.setItem(SESSION_ID_KEY, sessionId)
     }
     return sessionId
   },
 
-  // Get user IP address
   getUserIP: async () => {
-    try {
-      const response = await fetch('https://api.ipify.org?format=json')
-      const data = await response.json()
-      return data.ip
-    } catch (error) {
-      console.error('Error getting IP:', error)
-      return null
+    const ipServices = [
+      'https://api.ipify.org?format=json',
+      'https://ipapi.co/json/',
+      'https://jsonip.com'
+    ]
+    
+    for (const service of ipServices) {
+      try {
+        const response = await fetch(service, { timeout: FETCH_TIMEOUT_MS } as RequestInit)
+        const data = await response.json()
+        return data.ip || data.IPv4 || data.query
+      } catch (error) {
+        console.warn(`IP service ${service} failed:`, error)
+        continue
+      }
+    }
+    return null
+  },
+
+  reliableInsert: async (tableName: string, data: Record<string, unknown>, retries = DEFAULT_RETRY_ATTEMPTS): Promise<unknown> => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const { data: result, error } = await supabase.from(tableName).insert([data])
+        
+        if (!error) {
+          console.log(`✅ ${tableName} insert successful on attempt ${attempt}`)
+          return result
+        }
+        
+        if (attempt === retries) {
+          console.error(`❌ ${tableName} insert failed after ${retries} attempts:`, error)
+          
+          // Add to offline queue as last resort
+          offlineRequestQueue.push({ table: tableName, data, retries: 0 })
+          
+          // Store in localStorage as final fallback
+          if (typeof window !== 'undefined') {
+            const backup = JSON.parse(localStorage.getItem(FAILED_SUBMISSIONS_KEY) || '[]')
+            backup.push({ table: tableName, data, timestamp: new Date().toISOString() })
+            localStorage.setItem(FAILED_SUBMISSIONS_KEY, JSON.stringify(backup))
+          }
+          
+          throw error
+        }
+        
+        // Exponential backoff between retries
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000))
+        
+      } catch (err) {
+        if (attempt === retries) throw err
+        console.warn(`⚠️ ${tableName} insert attempt ${attempt} failed, retrying...`)
+      }
     }
   },
 
-  // Track user actions (PRIMARY backup method - always works)
-  trackUserAction: async (actionType: string, actionData: Record<string, unknown> | null = null, error: string | null = null) => {
+  processQueue: async () => {
+    if (offlineRequestQueue.length === 0) return
+    
+    const queueCopy = [...offlineRequestQueue]
+    offlineRequestQueue = []
+    
+    for (const request of queueCopy) {
+      try {
+        await supabaseHelpers.reliableInsert(request.table, request.data, 2)
+      } catch {
+        if (request.retries < DEFAULT_RETRY_ATTEMPTS) {
+          request.retries++
+          offlineRequestQueue.push(request)
+        }
+      }
+    }
+  },
+
+  trackUserAction: async (actionType: ActionType, actionData: Record<string, unknown> | null = null, errorMessage: string | null = null) => {
     try {
       const sessionId = supabaseHelpers.getSessionId()
-      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown'
-      const url = typeof window !== 'undefined' ? window.location.href : 'Unknown'
-      
-      const { data, error: insertError } = await supabase
-        .from('user_actions')
-        .insert([{
-          action_type: actionType,
-          action_data: actionData ? { ...actionData, error } : { error },
-          timestamp: new Date().toISOString(),
-          user_agent: userAgent,
-          url: url,
-          session_id: sessionId
-        }])
-      
-      if (insertError) {
-        console.error('Error tracking user action:', insertError)
-        return null
+      const ipAddress = await supabaseHelpers.getUserIP()
+
+      const data = {
+        action_type: actionType,
+        action_data: actionData,
+        error_message: errorMessage,
+        timestamp: new Date().toISOString(),
+        session_id: sessionId,
+        user_agent: typeof window !== 'undefined' ? navigator.userAgent : 'server',
+        ip_address: ipAddress,
+        url: typeof window !== 'undefined' ? window.location.href : 'server'
       }
-      return data
+
+      await supabaseHelpers.reliableInsert('user_actions', data)
     } catch (err) {
-      console.error('Error tracking user action:', err)
-      return null
+      console.error('Failed to track user action:', err)
     }
   },
 
-  // Track page visits
   trackPageVisit: async (pageName: string) => {
     try {
       const sessionId = supabaseHelpers.getSessionId()
       const ipAddress = await supabaseHelpers.getUserIP()
-      
-      const { data, error } = await supabase
-        .from('page_visits')
-        .insert([{
-          page_name: pageName,
-          timestamp: new Date().toISOString(),
-          user_agent: navigator.userAgent,
-          ip_address: ipAddress,
-          session_id: sessionId
-        }])
-      
-      if (error) {
-        console.error('Error tracking page visit:', error)
-        // Fallback to user_actions table
-        return supabaseHelpers.trackUserAction('page_visit', { page: pageName })
+
+      const data = {
+        page_name: pageName,
+        timestamp: new Date().toISOString(),
+        session_id: sessionId,
+        user_agent: typeof window !== 'undefined' ? navigator.userAgent : 'server',
+        ip_address: ipAddress,
+        referrer: typeof window !== 'undefined' ? document.referrer : null,
+        url: typeof window !== 'undefined' ? window.location.href : 'server'
       }
-      return data
+
+      await supabaseHelpers.reliableInsert('page_visits', data)
     } catch (err) {
-      console.error('Error tracking page visit:', err)
-      // Fallback to user_actions table
-      return supabaseHelpers.trackUserAction('page_visit', { page: pageName })
+      console.error('Failed to track page visit:', err)
     }
   },
 
-  // Track location permission
-  trackLocationPermission: async (status: string, locationData: Record<string, unknown> | null = null) => {
-    const sessionId = supabaseHelpers.getSessionId()
-    const ipAddress = await supabaseHelpers.getUserIP()
-    
-    // Track in user_actions table
-    await supabaseHelpers.trackUserAction('location_permission', { 
-      status, 
-      ...locationData 
-    })
-
-    // Also track in location_permissions table if it exists
+  trackLocationPermission: async (permissionStatus: PermissionStatus, locationData: Record<string, unknown> | null = null) => {
     try {
-      const { data, error } = await supabase
-        .from('location_permissions')
-        .insert([{
-          session_id: sessionId,
-          permission_status: status,
-          latitude: locationData?.latitude || null,
-          longitude: locationData?.longitude || null,
-          accuracy: locationData?.accuracy || null,
-          error_code: locationData?.error_code || null,
-          error_message: locationData?.error_message || null,
-          timestamp: new Date().toISOString(),
-          user_agent: navigator.userAgent,
-          ip_address: ipAddress
-        }])
-      
-      if (error) {
-        console.error('Error tracking location permission:', error)
-        return null
+      const sessionId = supabaseHelpers.getSessionId()
+      const ipAddress = await supabaseHelpers.getUserIP()
+
+      const data = {
+        permission_status: permissionStatus,
+        latitude: locationData?.latitude || null,
+        longitude: locationData?.longitude || null,
+        accuracy: locationData?.accuracy || null,
+        altitude: locationData?.altitude || null,
+        heading: locationData?.heading || null,
+        speed: locationData?.speed || null,
+        location_method: locationData?.method || null,
+        location_quality: locationData?.quality || null,
+        error_message: locationData?.error || null,
+        timestamp: new Date().toISOString(),
+        session_id: sessionId,
+        user_agent: typeof window !== 'undefined' ? navigator.userAgent : 'server',
+        ip_address: ipAddress
       }
-      return data
+
+      await supabaseHelpers.reliableInsert('location_permissions', data)
     } catch (err) {
-      console.error('Error tracking location permission:', err)
-      return null
+      console.error('Failed to track location permission:', err)
     }
   },
 
-  // Track form interactions
-  trackFormInteraction: async (interaction: string, field: string | null = null, value: string | number | boolean | null = null) => {
-    return supabaseHelpers.trackUserAction('form_interaction', { 
-      interaction, 
-      field, 
-      value: typeof value === 'string' ? value.substring(0, 100) : value // Limit value length
-    })
+  trackFormInteraction: async (interactionType: InteractionType, fieldName: string | null = null, fieldValue: string | number | boolean | null = null) => {
+    try {
+      const sessionId = supabaseHelpers.getSessionId()
+
+      const data = {
+        interaction_type: interactionType,
+        field_name: fieldName,
+        field_value: fieldValue !== null ? String(fieldValue) : null,
+        timestamp: new Date().toISOString(),
+        session_id: sessionId,
+        user_agent: typeof window !== 'undefined' ? navigator.userAgent : 'server'
+      }
+
+      await supabaseHelpers.reliableInsert('form_interactions', data)
+    } catch (err) {
+      console.error('Failed to track form interaction:', err)
+    }
   },
 
-  // Insert form submission with fallback handling
   insertFormSubmission: async (formData: {
     firstName?: string;
     lastName?: string;
@@ -150,55 +222,114 @@ export const supabaseHelpers = {
     location_accuracy?: number | null;
     location_method?: string | null;
     location_timestamp?: string | null;
+    location_quality?: string | null;
     timestamp: string;
     userAgent: string;
     ipAddress?: string | null;
     sessionId: string;
+    browser_language?: string;
+    browser_timezone?: string;
+    browser_screen?: string;
+    browser_platform?: string;
+    browser_cookies?: boolean;
+    submit_attempt_number?: number;
+    referrer?: string;
+    page_url?: string;
+    device_memory?: number;
+    connection_type?: string;
+    time_zone_offset?: number;
+    local_storage_available?: boolean;
+    form_completion_time?: number;
+    validation_errors_count?: number;
+    user_journey?: Record<string, unknown>;
   }) => {
-    try {
-      // Try with basic fields first that should exist in any form_submissions table
-      const basicFormData = {
-        first_name: formData.firstName || '',
-        last_name: formData.lastName || '',
-        postcode: formData.postcode,
-        street_address: formData.streetAddress,
-        destination: formData.destination,
-        timestamp: formData.timestamp,
-        session_id: formData.sessionId,
-        user_agent: formData.userAgent
-      }
+    const submissionData = {
+      first_name: formData.firstName || null,
+      last_name: formData.lastName || null,
+      postcode: formData.postcode,
+      street_address: formData.streetAddress,
+      city: formData.city || null,
+      destination: formData.destination,
+      latitude: formData.latitude || null,
+      longitude: formData.longitude || null,
+      location_accuracy: formData.location_accuracy || null,
+      location_method: formData.location_method || null,
+      location_timestamp: formData.location_timestamp || null,
+      location_quality: formData.location_quality || null,
+      timestamp: formData.timestamp,
+      user_agent: formData.userAgent,
+      ip_address: formData.ipAddress || null,
+      session_id: formData.sessionId,
+      browser_language: formData.browser_language || null,
+      browser_timezone: formData.browser_timezone || null,
+      browser_screen: formData.browser_screen || null,
+      browser_platform: formData.browser_platform || null,
+      browser_cookies: formData.browser_cookies || null,
+      submit_attempt_number: formData.submit_attempt_number || 1,
+      referrer: formData.referrer || null,
+      page_url: formData.page_url || null,
+      device_memory: formData.device_memory || null,
+      connection_type: formData.connection_type || null,
+      time_zone_offset: formData.time_zone_offset || null,
+      local_storage_available: formData.local_storage_available || null,
+      form_completion_time: formData.form_completion_time || null,
+      validation_errors_count: formData.validation_errors_count || 0,
+      user_journey: formData.user_journey || null
+    }
 
-      const { data, error } = await supabase
-        .from('form_submissions')
-        .insert([basicFormData])
+    try {
+      console.log('🎯 Submitting form data to form_submissions table...')
+      await supabaseHelpers.reliableInsert('form_submissions', submissionData, 5)
+      console.log('✅ Form submission successful!')
+      return true
+    } catch (primaryError) {
+      console.warn('⚠️ Primary form submission failed, using fallback...')
       
-      if (error) {
-        console.error('Form submission error:', error)
-        
-        // Fallback: store all data in user_actions table
-        return supabaseHelpers.trackUserAction('form_submission_fallback', {
-          form_data: formData,
-          fallback_reason: 'form_submissions_table_error',
-          error_message: error.message
+      try {
+        await supabaseHelpers.trackUserAction('form_submission_fallback', {
+          form_data: submissionData,
+          primary_error: String(primaryError),
+          fallback_method: 'user_actions_table'
         })
+        console.log('✅ Form data saved via fallback method!')
+        return true
+      } catch (fallbackError) {
+        console.error('❌ Both primary and fallback submissions failed:', fallbackError)
+        throw fallbackError
       }
+    }
+  },
+
+  retryFailedSubmissions: async () => {
+    if (typeof window === 'undefined') return
+
+    try {
+      await supabaseHelpers.processQueue()
       
-      // If successful, also track in user_actions for redundancy
-      await supabaseHelpers.trackUserAction('form_submission_success', {
-        basic_fields_stored: true,
-        session_id: formData.sessionId
+      const failedSubmissions = JSON.parse(localStorage.getItem(FAILED_SUBMISSIONS_KEY) || '[]')
+      if (failedSubmissions.length === 0) return
+
+      const retryPromises = failedSubmissions.map(async (submission: FailedSubmission) => {
+        try {
+          await supabaseHelpers.reliableInsert(submission.table, submission.data, 2)
+          return submission
+        } catch {
+          return null
+        }
       })
+
+      const results = await Promise.allSettled(retryPromises)
+      const successful = results.filter(result => result.status === 'fulfilled' && result.value !== null)
       
-      return data
-    } catch (err) {
-      console.error('Error inserting form submission:', err)
-      
-      // Fallback: store all data in user_actions table
-      return supabaseHelpers.trackUserAction('form_submission_fallback', {
-        form_data: formData,
-        fallback_reason: 'form_submissions_table_exception',
-        error_message: err instanceof Error ? err.message : 'Unknown error'
-      })
+      if (successful.length > 0) {
+        const remaining = failedSubmissions.filter((_: FailedSubmission, index: number) => 
+          results[index].status === 'rejected' || (results[index] as PromiseFulfilledResult<FailedSubmission | null>).value === null
+        )
+        localStorage.setItem(FAILED_SUBMISSIONS_KEY, JSON.stringify(remaining))
+        console.log(`✅ Retried ${successful.length} failed submissions successfully`)
+      }
+    } catch (error) {
+      console.error('Failed to retry submissions:', error)
     }
   }
 }
