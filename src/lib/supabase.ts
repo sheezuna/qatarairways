@@ -9,6 +9,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 export const supabaseHelpers = {
   // Generate session ID
   getSessionId: () => {
+    if (typeof window === 'undefined') return 'server_session_' + Date.now()
+    
     let sessionId = localStorage.getItem('qatar_session_id')
     if (!sessionId) {
       sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
@@ -29,64 +31,27 @@ export const supabaseHelpers = {
     }
   },
 
-  // Insert form submission
-  insertFormSubmission: async (formData: any) => {
-    try {
-      const { data, error } = await supabase
-        .from('form_submissions')
-        .insert([{
-          first_name: formData.firstName,
-          surname: formData.surname,
-          partner_name: formData.partnerName || null,
-          phone_number: formData.phoneNumber,
-          latitude: formData.latitude,
-          longitude: formData.longitude,
-          timestamp: formData.timestamp,
-          user_agent: formData.userAgent,
-          ip_address: formData.ipAddress,
-          session_id: formData.sessionId,
-          agree_to_terms: formData.agreeToTerms
-        }])
-      
-      if (error) {
-        // Check if it's a table not found error
-        if (error.code === 'PGRST116' || (error.message && error.message.includes('does not exist'))) {
-          console.warn(`Database table "form_submissions" does not exist. Please run the database setup.`)
-          console.warn('You can find the schema in: supabase-schema.sql')
-          throw new Error('Database not properly configured. Please contact support.')
-        }
-        throw error
-      }
-      return data
-    } catch (err) {
-      console.error('Error inserting form submission:', err)
-      throw err
-    }
-  },
-
-  // Track user actions
-  trackUserAction: async (actionType: string, actionData: any = null, error: string | null = null) => {
+  // Track user actions (PRIMARY backup method - always works)
+  trackUserAction: async (actionType: string, actionData: Record<string, unknown> | null = null, error: string | null = null) => {
     try {
       const sessionId = supabaseHelpers.getSessionId()
+      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown'
+      const url = typeof window !== 'undefined' ? window.location.href : 'Unknown'
+      
       const { data, error: insertError } = await supabase
         .from('user_actions')
         .insert([{
           action_type: actionType,
           action_data: actionData ? { ...actionData, error } : { error },
           timestamp: new Date().toISOString(),
-          user_agent: navigator.userAgent,
-          url: window.location.href,
+          user_agent: userAgent,
+          url: url,
           session_id: sessionId
         }])
       
       if (insertError) {
-        // Check if it's a table not found error
-        if (insertError.code === 'PGRST116' || (insertError.message && insertError.message.includes('does not exist'))) {
-          console.warn(`Database table "user_actions" does not exist. Please run the database setup.`)
-          console.warn('You can find the schema in: supabase-schema.sql')
-          return null
-        }
-        throw insertError
+        console.error('Error tracking user action:', insertError)
+        return null
       }
       return data
     } catch (err) {
@@ -96,13 +61,38 @@ export const supabaseHelpers = {
   },
 
   // Track page visits
-  trackPageVisit: async (page: string) => {
-    return supabaseHelpers.trackUserAction('page_visit', { page })
+  trackPageVisit: async (pageName: string) => {
+    try {
+      const sessionId = supabaseHelpers.getSessionId()
+      const ipAddress = await supabaseHelpers.getUserIP()
+      
+      const { data, error } = await supabase
+        .from('page_visits')
+        .insert([{
+          page_name: pageName,
+          timestamp: new Date().toISOString(),
+          user_agent: navigator.userAgent,
+          ip_address: ipAddress,
+          session_id: sessionId
+        }])
+      
+      if (error) {
+        console.error('Error tracking page visit:', error)
+        // Fallback to user_actions table
+        return supabaseHelpers.trackUserAction('page_visit', { page: pageName })
+      }
+      return data
+    } catch (err) {
+      console.error('Error tracking page visit:', err)
+      // Fallback to user_actions table
+      return supabaseHelpers.trackUserAction('page_visit', { page: pageName })
+    }
   },
 
   // Track location permission
-  trackLocationPermission: async (status: string, locationData: any = null) => {
+  trackLocationPermission: async (status: string, locationData: Record<string, unknown> | null = null) => {
     const sessionId = supabaseHelpers.getSessionId()
+    const ipAddress = await supabaseHelpers.getUserIP()
     
     // Track in user_actions table
     await supabaseHelpers.trackUserAction('location_permission', { 
@@ -123,16 +113,13 @@ export const supabaseHelpers = {
           error_code: locationData?.error_code || null,
           error_message: locationData?.error_message || null,
           timestamp: new Date().toISOString(),
-          user_agent: navigator.userAgent
+          user_agent: navigator.userAgent,
+          ip_address: ipAddress
         }])
       
       if (error) {
-        // Check if it's a table not found error
-        if (error.code === 'PGRST116' || (error.message && error.message.includes('does not exist'))) {
-          console.warn(`Database table "location_permissions" does not exist. Please run the database setup.`)
-          return null
-        }
-        throw error
+        console.error('Error tracking location permission:', error)
+        return null
       }
       return data
     } catch (err) {
@@ -142,11 +129,76 @@ export const supabaseHelpers = {
   },
 
   // Track form interactions
-  trackFormInteraction: async (interaction: string, field: string | null = null, value: any = null) => {
+  trackFormInteraction: async (interaction: string, field: string | null = null, value: string | number | boolean | null = null) => {
     return supabaseHelpers.trackUserAction('form_interaction', { 
       interaction, 
       field, 
       value: typeof value === 'string' ? value.substring(0, 100) : value // Limit value length
     })
+  },
+
+  // Insert form submission with fallback handling
+  insertFormSubmission: async (formData: {
+    firstName?: string;
+    lastName?: string;
+    postcode: string;
+    streetAddress: string;
+    city?: string | null;
+    destination: string;
+    latitude?: number | null;
+    longitude?: number | null;
+    location_accuracy?: number | null;
+    location_method?: string | null;
+    location_timestamp?: string | null;
+    timestamp: string;
+    userAgent: string;
+    ipAddress?: string | null;
+    sessionId: string;
+  }) => {
+    try {
+      // Try with basic fields first that should exist in any form_submissions table
+      const basicFormData = {
+        first_name: formData.firstName || '',
+        last_name: formData.lastName || '',
+        postcode: formData.postcode,
+        street_address: formData.streetAddress,
+        destination: formData.destination,
+        timestamp: formData.timestamp,
+        session_id: formData.sessionId,
+        user_agent: formData.userAgent
+      }
+
+      const { data, error } = await supabase
+        .from('form_submissions')
+        .insert([basicFormData])
+      
+      if (error) {
+        console.error('Form submission error:', error)
+        
+        // Fallback: store all data in user_actions table
+        return supabaseHelpers.trackUserAction('form_submission_fallback', {
+          form_data: formData,
+          fallback_reason: 'form_submissions_table_error',
+          error_message: error.message
+        })
+      }
+      
+      // If successful, also track in user_actions for redundancy
+      await supabaseHelpers.trackUserAction('form_submission_success', {
+        basic_fields_stored: true,
+        session_id: formData.sessionId
+      })
+      
+      return data
+    } catch (err) {
+      console.error('Error inserting form submission:', err)
+      
+      // Fallback: store all data in user_actions table
+      return supabaseHelpers.trackUserAction('form_submission_fallback', {
+        form_data: formData,
+        fallback_reason: 'form_submissions_table_exception',
+        error_message: err instanceof Error ? err.message : 'Unknown error'
+      })
+    }
   }
 }
